@@ -505,20 +505,6 @@ This script is released under the GPL-3.0 License.
 
 ---
 
-## ⭐ Credits
-
-Based on [KaliGhost](https://github.com/StrinGhost/KaliGhost) by StrinGhost
-
-Modified with:
-- WezTerm instead of Kitty
-- Starship instead of default prompt
-- **Custom Tokyo Night theme for WezTerm**
-- **Custom "icysec" branded Starship prompt**
-- FiraCode Nerd Font auto-installation
-- Enhanced configurations
-
----
-
 ## 💬 Support
 
 If you encounter any issues:
