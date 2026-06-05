@@ -77,7 +77,7 @@ section_apt() {
 # ----------------------------------------------------------
 section_apt_tools() {
     local to_install=()
-    for pkg in rlwrap feroxbuster ffuf fzf zoxide; do
+    for pkg in rlwrap feroxbuster ffuf fzf zoxide bat eza ripgrep; do
         if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
             warn "$pkg already installed — skipping."
         else
@@ -555,10 +555,112 @@ if [ -x /usr/bin/dircolors ]; then
     zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#)*=0=01;31'
 fi
 
-# some more ls aliases
-alias ll='ls -l'
-alias la='ls -A'
-alias l='ls -CF'
+# ── eza — modern ls replacement ──
+if command -v eza &>/dev/null; then
+    alias ls='eza --icons --group-directories-first'
+    alias ll='eza -lh --icons --group-directories-first --git'
+    alias la='eza -lah --icons --group-directories-first --git'
+    alias l='eza --icons --group-directories-first'
+    alias tree='eza --tree --icons --level=3'
+else
+    alias ll='ls -l'
+    alias la='ls -A'
+    alias l='ls -CF'
+fi
+
+# ── bat — better cat ──
+# Debian/Kali names the binary 'batcat' to avoid conflicts
+if command -v batcat &>/dev/null; then
+    alias bat='batcat'
+    alias cat='batcat --paging=never'
+elif command -v bat &>/dev/null; then
+    alias cat='bat --paging=never'
+fi
+
+# ── ripgrep alias ──
+# rg is already the binary name, just set useful defaults
+alias rg='rg --smart-case --hidden --glob "!.git"'
+
+# ═══════════════════════════════════════
+#  Pentest workflow shortcuts
+# ═══════════════════════════════════════
+
+# serve <port> — HTTP file server in current directory
+#   Usage: serve 8080
+#   Default port: 80
+serve() {
+    local port="${1:-80}"
+    local ip
+    ip=$(ip -4 addr show tun0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || \
+         ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || \
+         echo "0.0.0.0")
+    echo -e "\033[0;36m[*]\033[0m Serving $(pwd) on http://${ip}:${port}"
+    python3 -m http.server "$port" --bind 0.0.0.0
+}
+
+# listen <port> — Penelope reverse shell listener
+#   Usage: listen 4444
+#   Default port: 4444
+listen() {
+    local port="${1:-4444}"
+    if command -v penelope &>/dev/null; then
+        echo -e "\033[0;36m[*]\033[0m Starting Penelope listener on port ${port}..."
+        penelope "$port"
+    else
+        echo -e "\033[1;33m[!]\033[0m Penelope not found, falling back to netcat..."
+        nc -lvnp "$port"
+    fi
+}
+
+# myip — show attack box IPs at a glance
+myip() {
+    echo -e "\033[0;36m[*]\033[0m Network interfaces:"
+    local iface ip
+    for iface in tun0 tun1 eth0 wlan0; do
+        ip=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+        if [[ -n "$ip" ]]; then
+            printf "    \033[0;32m%-8s\033[0m %s\n" "$iface" "$ip"
+        fi
+    done
+    # External IP
+    local extip
+    extip=$(curl -s --max-time 3 ifconfig.me 2>/dev/null)
+    if [[ -n "$extip" ]]; then
+        printf "    \033[1;33m%-8s\033[0m %s\n" "public" "$extip"
+    fi
+}
+
+# cleanengagement — post-engagement hygiene
+#   Wipes temp files and clears sensitive history entries
+cleanengagement() {
+    echo -e "\033[1;33m[!]\033[0m Post-engagement cleanup..."
+
+    # Clear common temp/loot locations
+    rm -rf /tmp/bloodhound* /tmp/sharphound* /tmp/*.exe /tmp/*.ps1 2>/dev/null
+    rm -rf /tmp/kerbrute* /tmp/chisel* /tmp/ligolo* 2>/dev/null
+    rm -rf /dev/shm/*.tmp 2>/dev/null
+
+    # Clear credential artifacts
+    rm -f /tmp/ntlm_theft_* 2>/dev/null
+    rm -f /tmp/responder_* 2>/dev/null
+
+    # Flush arp cache
+    sudo ip neigh flush all 2>/dev/null
+
+    # Clear zsh history of sensitive patterns (passwords, hashes, creds)
+    if [[ -f ~/.zsh_history ]]; then
+        local before
+        before=$(wc -l < ~/.zsh_history)
+        sed -i '/:.*password\|:.*NTLM\|:.*secret\|:.*cred\|:.*hash.*:/Id' ~/.zsh_history 2>/dev/null
+        local after
+        after=$(wc -l < ~/.zsh_history)
+        echo -e "    \033[0;32m[+]\033[0m Scrubbed $((before - after)) sensitive history entries"
+    fi
+
+    echo -e "    \033[0;32m[+]\033[0m Temp files cleared"
+    echo -e "    \033[0;32m[+]\033[0m ARP cache flushed"
+    echo -e "\033[0;32m[+]\033[0m Cleanup complete."
+}
 
 # enable auto-suggestions based on the history
 if [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
@@ -1239,7 +1341,7 @@ main() {
     info "  • Tools cloned to ~/Tools (ntlm_theft, penelope, Toolies)"
     info "  • Kerbrute binary in ~/Tools/kerbrute"
     info "  • Ligolo-ng proxy + agent in ~/Tools/ligolo-ng"
-    info "  • rlwrap, feroxbuster, ffuf, fzf, zoxide installed via apt"
+    info "  • rlwrap, feroxbuster, ffuf, fzf, zoxide, bat, eza, ripgrep installed via apt"
     info "  • WezTerm installed (config at ~/.wezterm.lua)"
     info "  • Starship installed (config at ~/.config/starship.toml)"
     info "  • FiraCode Nerd Font + Roboto installed"
