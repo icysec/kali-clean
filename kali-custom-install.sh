@@ -2,7 +2,11 @@
 # ============================================================================
 #  kali-setup.sh — Fresh Kali Linux post-install provisioning script
 #  Run as your normal user (script will sudo when needed).
-#  Usage:  chmod +x kali-setup.sh && ./kali-setup.sh
+#
+#  Usage:
+#    ./kali-setup.sh                 Full install (packages, tools, configs)
+#    ./kali-setup.sh --reset-configs Rewrite all config files to defaults
+#    ./kali-setup.sh --help          Show this help
 # ============================================================================
 
 set -euo pipefail
@@ -23,6 +27,22 @@ warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
 error()   { echo -e "${RED}[-]${NC} $*"; }
 
 # ----------------------------------------------------------
+#  Usage
+# ----------------------------------------------------------
+usage() {
+    echo ""
+    echo "Usage: $(basename "$0") [OPTION]"
+    echo ""
+    echo "  (no flag)         Full install — packages, tools, configs, fonts"
+    echo "  --reset-configs   Rewrite shell/terminal configs to defaults"
+    echo "                    Restores: .zshrc, .wezterm.lua, starship.toml,"
+    echo "                    .tmux.conf, PATH, aliases, and tool symlinks"
+    echo "  --help            Show this help"
+    echo ""
+    exit 0
+}
+
+# ----------------------------------------------------------
 #  Pre-flight checks
 # ----------------------------------------------------------
 if [[ "$EUID" -eq 0 ]]; then
@@ -30,7 +50,6 @@ if [[ "$EUID" -eq 0 ]]; then
     exit 1
 fi
 
-info "Starting Kali post-install setup..."
 TOOLS_DIR="$HOME/Tools"
 mkdir -p "$TOOLS_DIR"
 
@@ -58,7 +77,7 @@ section_apt() {
 # ----------------------------------------------------------
 section_apt_tools() {
     local to_install=()
-    for pkg in rlwrap feroxbuster ffuf; do
+    for pkg in rlwrap feroxbuster ffuf fzf zoxide; do
         if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
             warn "$pkg already installed — skipping."
         else
@@ -552,6 +571,38 @@ fi
 if [ -f /etc/zsh_command_not_found ]; then
     . /etc/zsh_command_not_found
 fi
+
+# ── fzf — fuzzy finder ──
+# Ctrl+R  = fuzzy history search
+# Ctrl+T  = fuzzy file search (insert path)
+# Alt+C   = fuzzy cd into directory
+if [ -f /usr/share/doc/fzf/examples/key-bindings.zsh ]; then
+    . /usr/share/doc/fzf/examples/key-bindings.zsh
+fi
+if [ -f /usr/share/doc/fzf/examples/completion.zsh ]; then
+    . /usr/share/doc/fzf/examples/completion.zsh
+fi
+# Tokyo Night colors for fzf popup
+export FZF_DEFAULT_OPTS="
+  --color=bg+:#24283b,bg:#1a1b26,fg:#c0caf5,fg+:#c0caf5
+  --color=hl:#769ff0,hl+:#769ff0,info:#f7768e,marker:#9ece6a
+  --color=prompt:#769ff0,spinner:#9ece6a,pointer:#f7768e,header:#769ff0
+  --color=border:#394260,gutter:#1a1b26
+  --height=40% --layout=reverse --border=rounded
+"
+# Use fd if available, fall back to find
+if command -v fd &>/dev/null; then
+    export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude .git'
+    export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+    export FZF_ALT_C_COMMAND='fd --type d --hidden --exclude .git'
+fi
+
+# ── zoxide — smart cd ──
+# Usage: z <partial-dir-name>  (e.g. "z acme" → ~/Engagements/acme)
+if command -v zoxide &>/dev/null; then
+    eval "$(zoxide init zsh)"
+fi
+
 eval "$(starship init zsh)"
 ZSHRC_EOF
     success "~/.zshrc written."
@@ -562,58 +613,200 @@ ZSHRC_EOF
     cat > "$HOME/.wezterm.lua" << 'WEZTERM_EOF'
 -- Pull in the wezterm API
 local wezterm = require 'wezterm'
+local act = wezterm.action
 
 -- This will hold the configuration.
 local config = wezterm.config_builder()
 
---- Insert Customization Below ---
-
--- Color Scheme
+-- ═══════════════════════════════════════
+--  Color Scheme & Background
+-- ═══════════════════════════════════════
 config.color_scheme = 'Tokyo Night'
 config.window_background_opacity = 1
 
--- Fonts
+-- ═══════════════════════════════════════
+--  Fonts & Ligatures
+-- ═══════════════════════════════════════
 config.font_size = 10
-config.font = wezterm.font 'FiraCode Nerd Font'
+config.font = wezterm.font('FiraCode Nerd Font', { weight = 'Regular' })
+config.font_rules = {
+    {
+        italic = true,
+        font = wezterm.font('FiraCode Nerd Font', { weight = 'Regular', italic = true }),
+    },
+    {
+        intensity = 'Bold',
+        font = wezterm.font('FiraCode Nerd Font', { weight = 'Bold' }),
+    },
+}
+config.harfbuzz_features = { 'calt=1', 'clig=1', 'liga=1' }
 
--- Window
+-- ═══════════════════════════════════════
+--  Cursor
+-- ═══════════════════════════════════════
+config.default_cursor_style = 'SteadyBar'
+config.cursor_blink_rate = 600
+config.cursor_blink_ease_in = 'EaseIn'
+config.cursor_blink_ease_out = 'EaseOut'
+config.force_reverse_video_cursor = false
+config.colors = config.colors or {}
+
+-- ═══════════════════════════════════════
+--  Window & Padding
+-- ═══════════════════════════════════════
 config.initial_cols = 120
 config.initial_rows = 28
-config.window_frame = {
-        font = wezterm.font 'Roboto',
-        font_size = 12,
-        active_titlebar_bg = '#1a1b26',
-        inactive_titlebar_bg = '#1a1b26'
+config.window_padding = {
+    left = 12,
+    right = 12,
+    top = 10,
+    bottom = 10,
 }
+config.window_decorations = 'RESIZE'
+config.enable_scroll_bar = false
+config.scrollback_lines = 10000
+
+-- ═══════════════════════════════════════
+--  Pane Dimming
+-- ═══════════════════════════════════════
+config.inactive_pane_hsb = {
+    saturation = 0.85,
+    brightness = 0.65,
+}
+
+-- ═══════════════════════════════════════
+--  Tab Bar (non-fancy for Nerd Font compat)
+-- ═══════════════════════════════════════
+config.use_fancy_tab_bar = true
+config.tab_bar_at_bottom = false
+config.hide_tab_bar_if_only_one_tab = false
+config.tab_max_width = 32
+config.show_new_tab_button_in_tab_bar = true
+
+config.window_frame = {
+    font = wezterm.font 'Roboto',
+    font_size = 12,
+    active_titlebar_bg = '#1a1b26',
+    inactive_titlebar_bg = '#1a1b26',
+}
+
 config.colors = {
-  tab_bar = {
-    -- The color of the inactive tab bar edge/divider
-    inactive_tab_edge = '#1a1b26',
+    cursor_bg = '#769ff0',
+    cursor_border = '#769ff0',
+    cursor_fg = '#1a1b26',
+
+    tab_bar = {
+        background = '#1a1b26',
+        inactive_tab_edge = '#1a1b26',
         active_tab = {
-                bg_color = '#1d2230',
-                fg_color = '#c0c0c0',
+            bg_color = '#24283b',
+            fg_color = '#a9b1d6',
+            intensity = 'Bold',
         },
         inactive_tab = {
-                bg_color = '#1a1b26',
-                fg_color = '#808080',
+            bg_color = '#1a1b26',
+            fg_color = '#565f89',
         },
         inactive_tab_hover = {
-                bg_color = '#24283b',
-                fg_color = '#909090',
-
+            bg_color = '#1d2230',
+            fg_color = '#a9b1d6',
         },
         new_tab = {
-                bg_color = '#1a1b26',
-                fg_color = '#808080',
+            bg_color = '#1a1b26',
+            fg_color = '#565f89',
         },
         new_tab_hover = {
-                bg_color = '#1d2230',
-                fg_color = '#909090'
+            bg_color = '#1d2230',
+            fg_color = '#a9b1d6',
         },
-  },
+    },
 }
 
---- Insert Customization Above ---
+-- ═══════════════════════════════════════
+--  Key Bindings
+-- ═══════════════════════════════════════
+config.keys = {
+    -- Pane splitting
+    { key = '|', mods = 'CTRL|SHIFT', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
+    { key = '_', mods = 'CTRL|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
+
+    -- Pane navigation (Alt + Arrow)
+    { key = 'LeftArrow',  mods = 'ALT', action = act.ActivatePaneDirection 'Left' },
+    { key = 'RightArrow', mods = 'ALT', action = act.ActivatePaneDirection 'Right' },
+    { key = 'UpArrow',    mods = 'ALT', action = act.ActivatePaneDirection 'Up' },
+    { key = 'DownArrow',  mods = 'ALT', action = act.ActivatePaneDirection 'Down' },
+
+    -- Close pane (Ctrl+Shift+W)
+    { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentPane { confirm = true } },
+
+    -- Tab reordering (Ctrl+Shift+PageUp/PageDown)
+    { key = 'PageUp',   mods = 'CTRL|SHIFT', action = act.MoveTabRelative(-1) },
+    { key = 'PageDown', mods = 'CTRL|SHIFT', action = act.MoveTabRelative(1) },
+
+    -- Tab navigation (Ctrl+PageUp/PageDown — like browser tabs)
+    { key = 'PageUp',   mods = 'CTRL', action = act.ActivateTabRelative(-1) },
+    { key = 'PageDown', mods = 'CTRL', action = act.ActivateTabRelative(1) },
+
+    -- Font size (Ctrl+= / Ctrl+- / Ctrl+0)
+    { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
+    { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
+    { key = '0', mods = 'CTRL', action = act.ResetFontSize },
+
+    -- Quick select mode (Ctrl+Shift+Space)
+    { key = 'Space', mods = 'CTRL|SHIFT', action = act.QuickSelect },
+
+    -- Tab navigator (Ctrl+Shift+T)
+    { key = 't', mods = 'CTRL|SHIFT', action = act.ShowTabNavigator },
+
+    -- Rename tab (Ctrl+Shift+R)
+    { key = 'r', mods = 'CTRL|SHIFT', action = act.PromptInputLine {
+        description = 'Enter new tab name:',
+        action = wezterm.action_callback(function(window, _, line)
+            if line then window:active_tab():set_title(line) end
+        end),
+    }},
+
+    -- Command palette (Ctrl+Shift+P)
+    { key = 'p', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
+}
+
+-- Ctrl+Alt+1-8 to jump to tab by number
+for i = 1, 8 do
+    table.insert(config.keys, {
+        key = tostring(i),
+        mods = 'CTRL|ALT',
+        action = act.ActivateTab(i - 1),
+    })
+end
+
+-- ═══════════════════════════════════════
+--  Quick Select Patterns (pentest-friendly)
+-- ═══════════════════════════════════════
+config.quick_select_patterns = {
+    -- IPv4 addresses
+    '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b',
+    -- IPv4 with CIDR
+    '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}\\b',
+    -- MAC addresses
+    '[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}',
+    -- MD5 hashes
+    '\\b[a-fA-F0-9]{32}\\b',
+    -- SHA1 hashes
+    '\\b[a-fA-F0-9]{40}\\b',
+    -- SHA256 hashes
+    '\\b[a-fA-F0-9]{64}\\b',
+    -- NTLMv2 / NetNTLM hashes (user::domain format)
+    '[\\w.]+::\\w+:[a-fA-F0-9]+:[a-fA-F0-9]+:[a-fA-F0-9]+',
+    -- Port numbers in nmap-style output (e.g. 80/tcp, 443/tcp)
+    '\\b\\d{1,5}/(?:tcp|udp)\\b',
+    -- File paths (Unix)
+    '(?:/[\\w.-]+)+',
+}
+
+-- ═══════════════════════════════════════
+--  Hyperlinks
+-- ═══════════════════════════════════════
+config.hyperlink_rules = wezterm.default_hyperlink_rules()
 
 -- Building Config -- Keep at Bottom
 return config
@@ -658,11 +851,11 @@ truncation_length = 3
 truncation_symbol = "__DOTS__/"
 
 [directory.substitutions]
-"Engagements" = "__TARGET__ Engagements"
-"Tools" = "__WRENCH__ Tools"
-"wordlists" = "__BOOK__ wordlists"
-"Documents" = "__DOC__ Documents"
-"Downloads" = "__INBOX__ Downloads"
+"Engagements" = "Engagements __TARGET__"
+"Tools" = "Tools __WRENCH__"
+"wordlists" = "wordlists __BOOK__"
+"Documents" = "Documents __DOC__"
+"Downloads" = "Downloads __INBOX__"
 
 [git_branch]
 symbol = "__GITICON__"
@@ -974,9 +1167,53 @@ section_cleanup() {
 }
 
 # ============================================================================
-#  Main — run all sections in order
+#  Reset configs — restores all dotfiles/configs to script defaults
+# ============================================================================
+reset_configs() {
+    info "Resetting configs to defaults..."
+    echo ""
+    warn "This will overwrite the following files (backups will be created):"
+    warn "  ~/.zshrc"
+    warn "  ~/.wezterm.lua"
+    warn "  ~/.config/starship.toml"
+    warn "  ~/.tmux.conf"
+    echo ""
+    read -rp "$(echo -e "${YELLOW}[!]${NC} Continue? [y/N] ")" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        info "Aborted."
+        exit 0
+    fi
+    echo ""
+
+    section_configs
+    section_path
+    section_engagement_alias
+    section_tool_symlinks
+
+    echo ""
+    success "========================================="
+    success "  Configs reset to defaults!"
+    success "========================================="
+    echo ""
+    info "Restored:"
+    info "  • ~/.zshrc (with Starship init, PATH, aliases)"
+    info "  • ~/.wezterm.lua (Tokyo Night, FiraCode Nerd Font)"
+    info "  • ~/.config/starship.toml (rounded bar, time, emojis)"
+    info "  • ~/.tmux.conf (C-a prefix, mouse, Tokyo Night status)"
+    info "  • Tool symlinks in ~/.local/bin"
+    echo ""
+    info "Backups of your previous configs saved as <filename>.bak.<timestamp>"
+    echo ""
+    warn "Run 'source ~/.zshrc' or restart your terminal to apply."
+}
+
+# ============================================================================
+#  Main — full install
 # ============================================================================
 main() {
+    info "Starting full Kali post-install setup..."
+    echo ""
+
     section_apt
     section_apt_tools
     section_git_tools
@@ -1002,7 +1239,7 @@ main() {
     info "  • Tools cloned to ~/Tools (ntlm_theft, penelope, Toolies)"
     info "  • Kerbrute binary in ~/Tools/kerbrute"
     info "  • Ligolo-ng proxy + agent in ~/Tools/ligolo-ng"
-    info "  • rlwrap, feroxbuster, ffuf installed via apt"
+    info "  • rlwrap, feroxbuster, ffuf, fzf, zoxide installed via apt"
     info "  • WezTerm installed (config at ~/.wezterm.lua)"
     info "  • Starship installed (config at ~/.config/starship.toml)"
     info "  • FiraCode Nerd Font + Roboto installed"
@@ -1023,4 +1260,12 @@ main() {
     warn "Restart your terminal (or run 'source ~/.zshrc') to apply changes."
 }
 
-main "$@"
+# ============================================================================
+#  Entry point — parse flags
+# ============================================================================
+case "${1:-}" in
+    --reset-configs) reset_configs ;;
+    --help|-h)       usage ;;
+    "")              main ;;
+    *)               error "Unknown flag: $1"; usage ;;
+esac
