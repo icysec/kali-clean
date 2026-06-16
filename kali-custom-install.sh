@@ -51,7 +51,27 @@ if [[ "$EUID" -eq 0 ]]; then
 fi
 
 TOOLS_DIR="$HOME/Tools"
-mkdir -p "$TOOLS_DIR"
+mkdir -p "$TOOLS_DIR"/{AD,Shells,Windows,Pivoting,Web,Recon,Exploits,Wordlists}
+
+# ----------------------------------------------------------
+#  0. Migrate tools from old flat layout to categorized
+# ----------------------------------------------------------
+migrate_if_exists() {
+    local src="$1"
+    local dest="$2"
+    if [[ -e "$src" ]] && [[ ! -e "$dest" ]]; then
+        info "Migrating $(basename "$src") → $dest"
+        mv "$src" "$dest"
+        success "Moved $(basename "$src") to categorized directory."
+    fi
+}
+
+# Migrate from old ~/Tools/<tool> to ~/Tools/<category>/<tool>
+migrate_if_exists "$TOOLS_DIR/ntlm_theft"   "$TOOLS_DIR/AD/ntlm_theft"
+migrate_if_exists "$TOOLS_DIR/kerbrute"     "$TOOLS_DIR/AD/kerbrute"
+migrate_if_exists "$TOOLS_DIR/penelope"     "$TOOLS_DIR/Shells/penelope"
+migrate_if_exists "$TOOLS_DIR/Toolies"      "$TOOLS_DIR/Windows/Toolies"
+migrate_if_exists "$TOOLS_DIR/ligolo-ng"    "$TOOLS_DIR/Pivoting/ligolo-ng"
 
 # ----------------------------------------------------------
 #  1. System update & kali-linux-everything
@@ -73,22 +93,29 @@ section_apt() {
 }
 
 # ----------------------------------------------------------
-#  2. APT tools (rlwrap, feroxbuster, ffuf)
+#  2. APT tools
 # ----------------------------------------------------------
 section_apt_tools() {
+    local all_pkgs=(rlwrap feroxbuster ffuf fzf zoxide bat eza ripgrep xclip mousepad arc-theme broot)
     local to_install=()
-    for pkg in rlwrap feroxbuster ffuf fzf zoxide bat eza ripgrep; do
+    local already=()
+
+    for pkg in "${all_pkgs[@]}"; do
         if dpkg -l "$pkg" 2>/dev/null | grep -q '^ii'; then
-            warn "$pkg already installed — skipping."
+            already+=("$pkg")
         else
             to_install+=("$pkg")
         fi
     done
 
+    if [[ ${#already[@]} -gt 0 ]]; then
+        info "${#already[@]}/${#all_pkgs[@]} packages already installed — skipping."
+    fi
+
     if [[ ${#to_install[@]} -gt 0 ]]; then
-        info "Installing apt tools: ${to_install[*]}..."
+        info "Installing ${#to_install[@]} packages: ${to_install[*]}..."
         sudo apt install -y "${to_install[@]}"
-        success "${to_install[*]} installed."
+        success "Packages installed."
     else
         success "All apt tools already installed."
     fi
@@ -109,20 +136,20 @@ clone_or_pull() {
 }
 
 section_git_tools() {
-    info "Cloning tools into $TOOLS_DIR..."
+    info "Cloning tools into $TOOLS_DIR (categorized)..."
 
-    # ntlm_theft
-    clone_or_pull "https://github.com/Greenwolf/ntlm_theft.git" "$TOOLS_DIR/ntlm_theft"
+    # ntlm_theft → AD
+    clone_or_pull "https://github.com/Greenwolf/ntlm_theft.git" "$TOOLS_DIR/AD/ntlm_theft"
     # Install ntlm_theft Python dependencies if requirements exist
-    if [[ -f "$TOOLS_DIR/ntlm_theft/requirements.txt" ]]; then
-        pip3 install --break-system-packages -r "$TOOLS_DIR/ntlm_theft/requirements.txt" || true
+    if [[ -f "$TOOLS_DIR/AD/ntlm_theft/requirements.txt" ]]; then
+        pip3 install --break-system-packages -r "$TOOLS_DIR/AD/ntlm_theft/requirements.txt" || true
     fi
 
-    # Penelope
-    clone_or_pull "https://github.com/brightio/penelope.git" "$TOOLS_DIR/penelope"
+    # Penelope → Shells
+    clone_or_pull "https://github.com/brightio/penelope.git" "$TOOLS_DIR/Shells/penelope"
 
-    # Toolies
-    clone_or_pull "https://github.com/expl0itabl3/Toolies.git" "$TOOLS_DIR/Toolies"
+    # Toolies → Windows
+    clone_or_pull "https://github.com/expl0itabl3/Toolies.git" "$TOOLS_DIR/Windows/Toolies"
 
     success "Git tools cloned to $TOOLS_DIR."
 }
@@ -131,8 +158,8 @@ section_git_tools() {
 #  4. Kerbrute — latest release binary
 # ----------------------------------------------------------
 section_kerbrute() {
-    if [[ -x "$TOOLS_DIR/kerbrute" ]]; then
-        warn "Kerbrute already exists at $TOOLS_DIR/kerbrute — skipping."
+    if [[ -x "$TOOLS_DIR/AD/kerbrute" ]]; then
+        warn "Kerbrute already exists at $TOOLS_DIR/AD/kerbrute — skipping."
         return 0
     fi
 
@@ -154,18 +181,18 @@ section_kerbrute() {
     fi
 
     info "Downloading from: $download_url"
-    curl -fsSL -o "$TOOLS_DIR/kerbrute" "$download_url"
-    chmod +x "$TOOLS_DIR/kerbrute"
+    curl -fsSL -o "$TOOLS_DIR/AD/kerbrute" "$download_url"
+    chmod +x "$TOOLS_DIR/AD/kerbrute"
 
-    success "Kerbrute binary saved to $TOOLS_DIR/kerbrute"
+    success "Kerbrute binary saved to $TOOLS_DIR/AD/kerbrute"
 }
 
 # ----------------------------------------------------------
 #  4b. Ligolo-ng — proxy + agent binaries              [NEW]
 # ----------------------------------------------------------
 section_ligolo() {
-    if [[ -d "$TOOLS_DIR/ligolo-ng" ]] && ls "$TOOLS_DIR"/ligolo-ng/*proxy* &>/dev/null; then
-        warn "Ligolo-ng already exists at $TOOLS_DIR/ligolo-ng — skipping."
+    if [[ -d "$TOOLS_DIR/Pivoting/ligolo-ng" ]] && ls "$TOOLS_DIR"/Pivoting/ligolo-ng/*proxy* &>/dev/null; then
+        warn "Ligolo-ng already exists at $TOOLS_DIR/Pivoting/ligolo-ng — skipping."
         return 0
     fi
 
@@ -187,25 +214,148 @@ section_ligolo() {
         | grep -oP '"browser_download_url":\s*"\K[^"]*agent[^"]*linux_amd64[^"]*\.tar\.gz' \
         | head -1)
 
-    mkdir -p "$TOOLS_DIR/ligolo-ng"
+    mkdir -p "$TOOLS_DIR/Pivoting/ligolo-ng"
 
     if [[ -n "$proxy_url" ]]; then
         info "Downloading Ligolo-ng proxy from: $proxy_url"
-        curl -fsSL "$proxy_url" | tar xz -C "$TOOLS_DIR/ligolo-ng"
+        curl -fsSL "$proxy_url" | tar xz -C "$TOOLS_DIR/Pivoting/ligolo-ng"
     else
         warn "Could not auto-detect Ligolo-ng proxy URL."
     fi
 
     if [[ -n "$agent_url" ]]; then
         info "Downloading Ligolo-ng agent from: $agent_url"
-        curl -fsSL "$agent_url" | tar xz -C "$TOOLS_DIR/ligolo-ng"
+        curl -fsSL "$agent_url" | tar xz -C "$TOOLS_DIR/Pivoting/ligolo-ng"
     else
         warn "Could not auto-detect Ligolo-ng agent URL."
     fi
 
-    chmod +x "$TOOLS_DIR"/ligolo-ng/* 2>/dev/null || true
+    chmod +x "$TOOLS_DIR"/Pivoting/ligolo-ng/* 2>/dev/null || true
 
-    success "Ligolo-ng saved to $TOOLS_DIR/ligolo-ng"
+    success "Ligolo-ng saved to $TOOLS_DIR/Pivoting/ligolo-ng"
+}
+
+# ----------------------------------------------------------
+#  4c. Recon tools (Go binaries) → ~/Tools/Recon
+# ----------------------------------------------------------
+# Helper: download latest Go binary from GitHub releases
+install_go_release() {
+    local name="$1"
+    local repo="$2"
+    local match="$3"
+    local dest="$4"
+
+    if [[ -x "$dest/$name" ]]; then
+        warn "$name already exists — skipping."
+        return 0
+    fi
+
+    info "Fetching latest $name release..."
+    local api_url="https://api.github.com/repos/$repo/releases/latest"
+    local download_url
+    download_url=$(curl -fsSL "$api_url" \
+        | grep -oP '"browser_download_url":\s*"\K[^"]*'"$match"'[^"]*' \
+        | head -1)
+
+    if [[ -z "$download_url" ]]; then
+        warn "Could not find $name release binary — skipping."
+        return 1
+    fi
+
+    info "Downloading $name from: $download_url"
+    local tmpfile
+    tmpfile=$(mktemp /tmp/${name}-XXXXXX)
+
+    if [[ "$download_url" == *.zip ]]; then
+        curl -fsSL -o "${tmpfile}.zip" "$download_url"
+        unzip -o "${tmpfile}.zip" -d "$dest" "$name" 2>/dev/null || \
+        unzip -o "${tmpfile}.zip" -d "$dest" 2>/dev/null
+        rm -f "${tmpfile}.zip"
+    elif [[ "$download_url" == *.tar.gz || "$download_url" == *.tgz ]]; then
+        curl -fsSL "$download_url" | tar xz -C "$dest"
+    else
+        curl -fsSL -o "$dest/$name" "$download_url"
+    fi
+
+    chmod +x "$dest/$name" 2>/dev/null || true
+    success "$name installed to $dest"
+}
+
+section_recon_tools() {
+    info "Installing recon tools to $TOOLS_DIR/Recon..."
+    local dest="$TOOLS_DIR/Recon"
+
+    # katana — web crawler/spider (ProjectDiscovery)
+    install_go_release "katana" \
+        "projectdiscovery/katana" \
+        "linux_amd64" \
+        "$dest"
+
+    # gau — Get All URLs from Wayback/Common Crawl/OTX
+    install_go_release "gau" \
+        "lc/gau" \
+        "linux_amd64" \
+        "$dest"
+
+    # waybackurls — fetch historical URLs from Wayback Machine
+    install_go_release "waybackurls" \
+        "tomnomnom/waybackurls" \
+        "linux-amd64" \
+        "$dest"
+
+    # qsreplace — replace query string values in URL lists
+    install_go_release "qsreplace" \
+        "tomnomnom/qsreplace" \
+        "linux-amd64" \
+        "$dest"
+
+    success "Recon tools installed."
+}
+
+# ----------------------------------------------------------
+#  4d. Web tools (Python/Go) → ~/Tools/Web
+# ----------------------------------------------------------
+section_web_tools() {
+    info "Installing web testing tools to $TOOLS_DIR/Web..."
+    local dest="$TOOLS_DIR/Web"
+
+    # ParamSpider — mine parameters from web archives
+    clone_or_pull "https://github.com/devanshbatham/ParamSpider.git" "$dest/ParamSpider"
+    if [[ -f "$dest/ParamSpider/requirements.txt" ]]; then
+        pip3 install --break-system-packages -r "$dest/ParamSpider/requirements.txt" 2>/dev/null || true
+    fi
+
+    # Arjun — HTTP parameter discovery
+    clone_or_pull "https://github.com/s0md3v/Arjun.git" "$dest/Arjun"
+    if [[ -f "$dest/Arjun/setup.py" ]]; then
+        pip3 install --break-system-packages -e "$dest/Arjun" 2>/dev/null || true
+    fi
+
+    # SecretFinder — find secrets/API keys in JavaScript
+    clone_or_pull "https://github.com/m4ll0k/SecretFinder.git" "$dest/SecretFinder"
+    if [[ -f "$dest/SecretFinder/requirements.txt" ]]; then
+        pip3 install --break-system-packages -r "$dest/SecretFinder/requirements.txt" 2>/dev/null || true
+    fi
+
+    # LinkFinder — extract endpoints from JS files
+    clone_or_pull "https://github.com/GerbenJavado/LinkFinder.git" "$dest/LinkFinder"
+    if [[ -f "$dest/LinkFinder/requirements.txt" ]]; then
+        pip3 install --break-system-packages -r "$dest/LinkFinder/requirements.txt" 2>/dev/null || true
+    fi
+
+    # dalfox — XSS scanner (Go binary)
+    install_go_release "dalfox" \
+        "hahwul/dalfox" \
+        "linux_amd64" \
+        "$dest"
+
+    # trufflehog — credential/secret scanner (Go binary)
+    install_go_release "trufflehog" \
+        "trufflesecurity/trufflehog" \
+        "linux_amd64" \
+        "$dest"
+
+    success "Web tools installed."
 }
 
 # ----------------------------------------------------------
@@ -445,46 +595,48 @@ if [ "$color_prompt" = yes ]; then
     if [ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
         . /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
         ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets pattern)
-        ZSH_HIGHLIGHT_STYLES[default]=none
-        ZSH_HIGHLIGHT_STYLES[unknown-token]=underline
-        ZSH_HIGHLIGHT_STYLES[reserved-word]=fg=cyan,bold
-        ZSH_HIGHLIGHT_STYLES[suffix-alias]=fg=green,underline
-        ZSH_HIGHLIGHT_STYLES[global-alias]=fg=green,bold
-        ZSH_HIGHLIGHT_STYLES[precommand]=fg=green,underline
-        ZSH_HIGHLIGHT_STYLES[commandseparator]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[autodirectory]=fg=green,underline
-        ZSH_HIGHLIGHT_STYLES[path]=bold
+        # Tokyo Night syntax highlighting
+        ZSH_HIGHLIGHT_STYLES[default]='fg=#a9b1d6'
+        ZSH_HIGHLIGHT_STYLES[unknown-token]='fg=#f7768e'
+        ZSH_HIGHLIGHT_STYLES[reserved-word]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[suffix-alias]='fg=#7dcfff,underline'
+        ZSH_HIGHLIGHT_STYLES[global-alias]='fg=#7dcfff,bold'
+        ZSH_HIGHLIGHT_STYLES[precommand]='fg=#7dcfff,underline'
+        ZSH_HIGHLIGHT_STYLES[commandseparator]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[autodirectory]='fg=#9ece6a,underline'
+        ZSH_HIGHLIGHT_STYLES[path]='fg=#9ece6a,underline'
         ZSH_HIGHLIGHT_STYLES[path_pathseparator]=
+        ZSH_HIGHLIGHT_STYLES[path_prefix]='fg=#9ece6a'
         ZSH_HIGHLIGHT_STYLES[path_prefix_pathseparator]=
-        ZSH_HIGHLIGHT_STYLES[globbing]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[history-expansion]=fg=blue,bold
+        ZSH_HIGHLIGHT_STYLES[globbing]='fg=#ff9e64'
+        ZSH_HIGHLIGHT_STYLES[history-expansion]='fg=#bb9af7,bold'
         ZSH_HIGHLIGHT_STYLES[command-substitution]=none
-        ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter]=fg=magenta,bold
+        ZSH_HIGHLIGHT_STYLES[command-substitution-delimiter]='fg=#bb9af7,bold'
         ZSH_HIGHLIGHT_STYLES[process-substitution]=none
-        ZSH_HIGHLIGHT_STYLES[process-substitution-delimiter]=fg=magenta,bold
-        ZSH_HIGHLIGHT_STYLES[single-hyphen-option]=fg=green
-        ZSH_HIGHLIGHT_STYLES[double-hyphen-option]=fg=green
+        ZSH_HIGHLIGHT_STYLES[process-substitution-delimiter]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[single-hyphen-option]='fg=#7dcfff'
+        ZSH_HIGHLIGHT_STYLES[double-hyphen-option]='fg=#7dcfff'
         ZSH_HIGHLIGHT_STYLES[back-quoted-argument]=none
-        ZSH_HIGHLIGHT_STYLES[back-quoted-argument-delimiter]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[single-quoted-argument]=fg=yellow
-        ZSH_HIGHLIGHT_STYLES[double-quoted-argument]=fg=yellow
-        ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]=fg=yellow
-        ZSH_HIGHLIGHT_STYLES[rc-quote]=fg=magenta
-        ZSH_HIGHLIGHT_STYLES[dollar-double-quoted-argument]=fg=magenta,bold
-        ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]=fg=magenta,bold
-        ZSH_HIGHLIGHT_STYLES[back-dollar-quoted-argument]=fg=magenta,bold
+        ZSH_HIGHLIGHT_STYLES[back-quoted-argument-delimiter]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[single-quoted-argument]='fg=#e0af68'
+        ZSH_HIGHLIGHT_STYLES[double-quoted-argument]='fg=#e0af68'
+        ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]='fg=#e0af68'
+        ZSH_HIGHLIGHT_STYLES[rc-quote]='fg=#bb9af7'
+        ZSH_HIGHLIGHT_STYLES[dollar-double-quoted-argument]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[back-dollar-quoted-argument]='fg=#bb9af7,bold'
         ZSH_HIGHLIGHT_STYLES[assign]=none
-        ZSH_HIGHLIGHT_STYLES[redirection]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[comment]=fg=black,bold
+        ZSH_HIGHLIGHT_STYLES[redirection]='fg=#89ddff,bold'
+        ZSH_HIGHLIGHT_STYLES[comment]='fg=#565f89,italic'
         ZSH_HIGHLIGHT_STYLES[named-fd]=none
         ZSH_HIGHLIGHT_STYLES[numeric-fd]=none
-        ZSH_HIGHLIGHT_STYLES[arg0]=fg=cyan
-        ZSH_HIGHLIGHT_STYLES[bracket-error]=fg=red,bold
-        ZSH_HIGHLIGHT_STYLES[bracket-level-1]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[bracket-level-2]=fg=green,bold
-        ZSH_HIGHLIGHT_STYLES[bracket-level-3]=fg=magenta,bold
-        ZSH_HIGHLIGHT_STYLES[bracket-level-4]=fg=yellow,bold
-        ZSH_HIGHLIGHT_STYLES[bracket-level-5]=fg=cyan,bold
+        ZSH_HIGHLIGHT_STYLES[arg0]='fg=#7aa2f7'
+        ZSH_HIGHLIGHT_STYLES[bracket-error]='fg=#f7768e,bold'
+        ZSH_HIGHLIGHT_STYLES[bracket-level-1]='fg=#7aa2f7,bold'
+        ZSH_HIGHLIGHT_STYLES[bracket-level-2]='fg=#9ece6a,bold'
+        ZSH_HIGHLIGHT_STYLES[bracket-level-3]='fg=#bb9af7,bold'
+        ZSH_HIGHLIGHT_STYLES[bracket-level-4]='fg=#e0af68,bold'
+        ZSH_HIGHLIGHT_STYLES[bracket-level-5]='fg=#7dcfff,bold'
         ZSH_HIGHLIGHT_STYLES[cursor-matchingbracket]=standout
     fi
 else
@@ -556,6 +708,16 @@ if [ -x /usr/bin/dircolors ]; then
 fi
 
 # ── eza — modern ls replacement ──
+# Tokyo Night eza colors
+export EZA_COLORS="\
+di=1;34:ln=36:so=35:pi=33:ex=1;32:bd=34;46:cd=34;43:\
+su=30;41:sg=30;46:tw=30;42:ow=34;42:fi=0:\
+*.py=33:*.sh=32:*.rb=31:*.rs=33:*.go=36:*.js=33:*.ts=34:*.lua=34:\
+*.conf=35:*.toml=35:*.yml=35:*.yaml=35:*.json=35:*.xml=35:\
+*.md=37:*.txt=37:*.log=90:*.bak=90:*.swp=90:\
+*.zip=31:*.tar=31:*.gz=31:*.7z=31:\
+*.pdf=35:*.png=36:*.jpg=36:*.svg=36"
+
 if command -v eza &>/dev/null; then
     alias ls='eza --icons --group-directories-first'
     alias ll='eza -lh --icons --group-directories-first --git'
@@ -573,8 +735,10 @@ fi
 if command -v batcat &>/dev/null; then
     alias bat='batcat'
     alias cat='batcat --paging=never'
+    export BAT_THEME="tokyonight_night"
 elif command -v bat &>/dev/null; then
     alias cat='bat --paging=never'
+    export BAT_THEME="tokyonight_night"
 fi
 
 # ── ripgrep alias ──
@@ -587,7 +751,7 @@ alias rg='rg --smart-case --hidden --glob "!.git"'
 
 # serve <port> — HTTP file server in current directory
 #   Usage: serve 8080
-#   Default port: 80
+#   Default port: 80 (auto-sudo for ports < 1024)
 serve() {
     local port="${1:-80}"
     local ip
@@ -595,20 +759,34 @@ serve() {
          ip -4 addr show eth0 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' || \
          echo "0.0.0.0")
     echo -e "\033[0;36m[*]\033[0m Serving $(pwd) on http://${ip}:${port}"
-    python3 -m http.server "$port" --bind 0.0.0.0
+    if [[ "$port" -lt 1024 ]]; then
+        sudo python3 -m http.server "$port" --bind 0.0.0.0
+    else
+        python3 -m http.server "$port" --bind 0.0.0.0
+    fi
 }
 
 # listen <port> — Penelope reverse shell listener
 #   Usage: listen 4444
-#   Default port: 4444
+#   Default port: 4444 (auto-sudo for ports < 1024)
 listen() {
     local port="${1:-4444}"
+    # Ensure penelope's log directory exists
+    mkdir -p "$HOME/.penelope" 2>/dev/null
     if command -v penelope &>/dev/null; then
         echo -e "\033[0;36m[*]\033[0m Starting Penelope listener on port ${port}..."
-        penelope "$port"
+        if [[ "$port" -lt 1024 ]]; then
+            sudo $(which penelope) "$port"
+        else
+            penelope "$port"
+        fi
     else
         echo -e "\033[1;33m[!]\033[0m Penelope not found, falling back to netcat..."
-        nc -lvnp "$port"
+        if [[ "$port" -lt 1024 ]]; then
+            sudo nc -lvnp "$port"
+        else
+            nc -lvnp "$port"
+        fi
     fi
 }
 
@@ -662,11 +840,158 @@ cleanengagement() {
     echo -e "\033[0;32m[+]\033[0m Cleanup complete."
 }
 
+# ═══════════════════════════════════════
+#  Clipboard helpers
+# ═══════════════════════════════════════
+# Usage: echo "stuff" | copy     →  copies to clipboard
+#        paste                   →  pastes from clipboard
+#        cat file.txt | copy     →  copy file contents
+if command -v xclip &>/dev/null; then
+    alias copy='xclip -selection clipboard'
+    alias paste='xclip -selection clipboard -o'
+fi
+
+# ═══════════════════════════════════════
+#  Universal extract
+# ═══════════════════════════════════════
+# Usage: extract archive.tar.gz
+extract() {
+    if [[ -z "$1" ]]; then
+        echo "Usage: extract <archive>"
+        return 1
+    fi
+    if [[ ! -f "$1" ]]; then
+        echo -e "\033[0;31m[-]\033[0m '$1' not found"
+        return 1
+    fi
+    case "$1" in
+        *.tar.bz2) tar xjf "$1"    ;;
+        *.tar.gz)  tar xzf "$1"    ;;
+        *.tar.xz)  tar xJf "$1"    ;;
+        *.tar.zst) tar --zstd -xf "$1" ;;
+        *.bz2)     bunzip2 "$1"    ;;
+        *.rar)     unrar x "$1"    ;;
+        *.gz)      gunzip "$1"     ;;
+        *.tar)     tar xf "$1"     ;;
+        *.tbz2)    tar xjf "$1"    ;;
+        *.tgz)     tar xzf "$1"    ;;
+        *.zip)     unzip "$1"      ;;
+        *.Z)       uncompress "$1" ;;
+        *.7z)      7z x "$1"       ;;
+        *)         echo -e "\033[1;33m[!]\033[0m Unknown format: '$1'" ;;
+    esac
+}
+
+# ═══════════════════════════════════════
+#  Encoding helpers
+# ═══════════════════════════════════════
+# Base64
+#   echo "payload" | b64e        →  encode
+#   echo "cGF5bG9hZA==" | b64d  →  decode
+#   b64e "string"                →  encode argument
+alias b64d='base64 -d'
+b64e() {
+    if [[ -n "$1" ]]; then
+        echo -n "$1" | base64
+    else
+        base64
+    fi
+}
+
+# URL encode/decode
+#   echo "hello world" | urlencode   →  hello%20world
+#   echo "hello%20world" | urldecode →  hello world
+#   urlencode "hello world"          →  hello%20world
+urlencode() {
+    if [[ -n "$1" ]]; then
+        python3 -c "import urllib.parse; print(urllib.parse.quote('$1', safe=''))"
+    else
+        python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe=''))"
+    fi
+}
+urldecode() {
+    if [[ -n "$1" ]]; then
+        python3 -c "import urllib.parse; print(urllib.parse.unquote('$1'))"
+    else
+        python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))"
+    fi
+}
+
+# ═══════════════════════════════════════
+#  Nmap quick profiles
+# ═══════════════════════════════════════
+# All output to current directory with timestamped filenames
+#   nquick 10.0.0.0/24           →  fast TCP top 1000
+#   nfull 10.0.0.1               →  all TCP ports, scripts
+#   nudp 10.0.0.1                →  top 100 UDP
+#   nvuln 10.0.0.1               →  vuln scripts
+nquick() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo "Usage: nquick <target>"; return 1; }
+    local out="nmap-quick-$(date +%Y%m%d-%H%M)"
+    echo -e "\033[0;36m[*]\033[0m Quick scan → $target (output: ${out}.*)"
+    sudo nmap -sC -sV -T4 --open -oA "$out" "$target"
+}
+
+nfull() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo "Usage: nfull <target>"; return 1; }
+    local out="nmap-full-$(date +%Y%m%d-%H%M)"
+    echo -e "\033[0;36m[*]\033[0m Full TCP scan → $target (output: ${out}.*)"
+    sudo nmap -sC -sV -p- -T4 --open -oA "$out" "$target"
+}
+
+nudp() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo "Usage: nudp <target>"; return 1; }
+    local out="nmap-udp-$(date +%Y%m%d-%H%M)"
+    echo -e "\033[0;36m[*]\033[0m UDP scan (top 100) → $target (output: ${out}.*)"
+    sudo nmap -sU --top-ports 100 -T4 --open -oA "$out" "$target"
+}
+
+nvuln() {
+    local target="$1"
+    [[ -z "$target" ]] && { echo "Usage: nvuln <target>"; return 1; }
+    local out="nmap-vuln-$(date +%Y%m%d-%H%M)"
+    echo -e "\033[0;36m[*]\033[0m Vuln scan → $target (output: ${out}.*)"
+    sudo nmap -sV --script vuln -T4 -oA "$out" "$target"
+}
+
+# ═══════════════════════════════════════
+#  Python venv helpers
+# ═══════════════════════════════════════
+# mkvenv [name]  →  create venv (default: .venv)
+# activate       →  activate venv in current or parent dir
+mkvenv() {
+    local name="${1:-.venv}"
+    python3 -m venv "$name"
+    source "$name/bin/activate"
+    pip install --upgrade pip > /dev/null 2>&1
+    echo -e "\033[0;32m[+]\033[0m Created and activated venv: $name"
+}
+
+activate() {
+    # Search current dir, then parent dirs for a venv
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        for venv in .venv venv env; do
+            if [[ -f "$dir/$venv/bin/activate" ]]; then
+                source "$dir/$venv/bin/activate"
+                echo -e "\033[0;32m[+]\033[0m Activated: $dir/$venv"
+                return 0
+            fi
+        done
+        dir="$(dirname "$dir")"
+    done
+    echo -e "\033[0;31m[-]\033[0m No venv found in current or parent directories"
+    return 1
+}
+
 # enable auto-suggestions based on the history
 if [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
     . /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
     # change suggestion color
-    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=244'
+    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=#565f89'
 fi
 
 # enable command-not-found if installed
@@ -703,6 +1028,12 @@ fi
 # Usage: z <partial-dir-name>  (e.g. "z acme" → ~/Engagements/acme)
 if command -v zoxide &>/dev/null; then
     eval "$(zoxide init zsh)"
+fi
+
+# ── broot — interactive tree browser ──
+# Run 'broot' once to generate the launcher, then 'br' to use
+if [[ -f "$HOME/.config/broot/launcher/bash/br" ]]; then
+    source "$HOME/.config/broot/launcher/bash/br"
 fi
 
 eval "$(starship init zsh)"
@@ -751,7 +1082,6 @@ config.cursor_blink_rate = 600
 config.cursor_blink_ease_in = 'EaseIn'
 config.cursor_blink_ease_out = 'EaseOut'
 config.force_reverse_video_cursor = false
-config.colors = config.colors or {}
 
 -- ═══════════════════════════════════════
 --  Window & Padding
@@ -764,7 +1094,6 @@ config.window_padding = {
     top = 10,
     bottom = 10,
 }
-config.window_decorations = 'RESIZE'
 config.enable_scroll_bar = false
 config.scrollback_lines = 10000
 
@@ -828,39 +1157,48 @@ config.colors = {
 --  Key Bindings
 -- ═══════════════════════════════════════
 config.keys = {
-    -- Pane splitting
+    -- ── Pane splitting ──
     { key = '|', mods = 'CTRL|SHIFT', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
     { key = '_', mods = 'CTRL|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
 
-    -- Pane navigation (Alt + Arrow)
-    { key = 'LeftArrow',  mods = 'ALT', action = act.ActivatePaneDirection 'Left' },
-    { key = 'RightArrow', mods = 'ALT', action = act.ActivatePaneDirection 'Right' },
-    { key = 'UpArrow',    mods = 'ALT', action = act.ActivatePaneDirection 'Up' },
-    { key = 'DownArrow',  mods = 'ALT', action = act.ActivatePaneDirection 'Down' },
+    -- ── Pane navigation (Ctrl+Shift + Arrow) ──
+    { key = 'LeftArrow',  mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Left' },
+    { key = 'RightArrow', mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Right' },
+    { key = 'UpArrow',    mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Up' },
+    { key = 'DownArrow',  mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Down' },
 
-    -- Close pane (Ctrl+Shift+W)
+    -- ── Pane zoom (toggle fullscreen — like tmux Ctrl+A z) ──
+    { key = 'z', mods = 'CTRL|SHIFT', action = act.TogglePaneZoomState },
+
+    -- ── Pane select (visual overlay with labels) ──
+    { key = 's', mods = 'CTRL|SHIFT', action = act.PaneSelect },
+
+    -- ── Pane swap (select a pane to swap with) ──
+    { key = 'x', mods = 'CTRL|SHIFT', action = act.PaneSelect { mode = 'SwapWithActive' } },
+
+    -- ── Close pane ──
     { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentPane { confirm = true } },
 
-    -- Tab reordering (Ctrl+Shift+PageUp/PageDown)
+    -- ── Tab reordering ──
     { key = 'PageUp',   mods = 'CTRL|SHIFT', action = act.MoveTabRelative(-1) },
     { key = 'PageDown', mods = 'CTRL|SHIFT', action = act.MoveTabRelative(1) },
 
-    -- Tab navigation (Ctrl+PageUp/PageDown — like browser tabs)
+    -- ── Tab navigation ──
     { key = 'PageUp',   mods = 'CTRL', action = act.ActivateTabRelative(-1) },
     { key = 'PageDown', mods = 'CTRL', action = act.ActivateTabRelative(1) },
 
-    -- Font size (Ctrl+= / Ctrl+- / Ctrl+0)
+    -- ── Font size ──
     { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
     { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
     { key = '0', mods = 'CTRL', action = act.ResetFontSize },
 
-    -- Quick select mode (Ctrl+Shift+Space)
+    -- ── Quick select mode ──
     { key = 'Space', mods = 'CTRL|SHIFT', action = act.QuickSelect },
 
-    -- Tab navigator (Ctrl+Shift+T)
-    { key = 't', mods = 'CTRL|SHIFT', action = act.ShowTabNavigator },
+    -- ── Tab navigator ──
+    { key = 't', mods = 'CTRL|SHIFT', action = act.SpawnTab 'CurrentPaneDomain' },
 
-    -- Rename tab (Ctrl+Shift+R)
+    -- ── Rename tab ──
     { key = 'r', mods = 'CTRL|SHIFT', action = act.PromptInputLine {
         description = 'Enter new tab name:',
         action = wezterm.action_callback(function(window, _, line)
@@ -868,15 +1206,15 @@ config.keys = {
         end),
     }},
 
-    -- Command palette (Ctrl+Shift+P)
+    -- ── Command palette ──
     { key = 'p', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
 }
 
--- Ctrl+Alt+1-8 to jump to tab by number
+-- Ctrl+1-8 to jump to tab by number
 for i = 1, 8 do
     table.insert(config.keys, {
         key = tostring(i),
-        mods = 'CTRL|ALT',
+        mods = 'CTRL',
         action = act.ActivateTab(i - 1),
     })
 end
@@ -1116,6 +1454,37 @@ setw -g window-status-format "#[fg=#808080] #I:#W "
 setw -g window-status-current-format "#[fg=#769ff0,bold] #I:#W "
 TMUX_EOF
     success "~/.tmux.conf written."
+
+    # ---- 8e. ~/.ssh/config ----                          [NEW]
+    info "Writing ~/.ssh/config defaults..."
+    mkdir -p "$HOME/.ssh"
+    chmod 700 "$HOME/.ssh"
+    if [[ ! -f "$HOME/.ssh/config" ]]; then
+        cat > "$HOME/.ssh/config" << 'SSH_EOF'
+# ── Global SSH defaults ──
+
+Host *
+    # Keep connections alive (prevents tunnel/session drops)
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+    # Reuse connections (faster reconnects)
+    ControlMaster auto
+    ControlPath ~/.ssh/sockets/%r@%h-%p
+    ControlPersist 600
+
+    # Don't hash known_hosts (readable during engagements)
+    HashKnownHosts no
+
+    # Default to not forwarding agent (OPSEC — opt in per host)
+    ForwardAgent no
+SSH_EOF
+        mkdir -p "$HOME/.ssh/sockets"
+        chmod 600 "$HOME/.ssh/config"
+        success "~/.ssh/config written."
+    else
+        warn "~/.ssh/config already exists — skipping (won't overwrite SSH config)."
+    fi
 }
 
 # ----------------------------------------------------------
@@ -1140,13 +1509,13 @@ section_path() {
 section_wordlist_symlinks() {
     info "Creating wordlist symlinks..."
 
-    local wl_dir="$HOME/wordlists"
-    mkdir -p "$wl_dir"
+    local wl_dir="$TOOLS_DIR/Wordlists"
+    # Directory already created at startup
 
     # Symlink seclists if present
     if [[ -d /usr/share/seclists ]]; then
         ln -sfn /usr/share/seclists "$wl_dir/seclists"
-        success "Symlinked /usr/share/seclists → ~/wordlists/seclists"
+        success "Symlinked /usr/share/seclists → ~/Tools/Wordlists/seclists"
     else
         warn "/usr/share/seclists not found — will be available after kali-linux-everything finishes."
     fi
@@ -1154,10 +1523,13 @@ section_wordlist_symlinks() {
     # Symlink default wordlists
     if [[ -d /usr/share/wordlists ]]; then
         ln -sfn /usr/share/wordlists "$wl_dir/default"
-        success "Symlinked /usr/share/wordlists → ~/wordlists/default"
+        success "Symlinked /usr/share/wordlists → ~/Tools/Wordlists/default"
     else
         warn "/usr/share/wordlists not found."
     fi
+
+    # Convenience symlink: ~/wordlists → ~/Tools/Wordlists
+    ln -sfn "$wl_dir" "$HOME/wordlists"
 }
 
 # ----------------------------------------------------------
@@ -1200,30 +1572,37 @@ section_tool_symlinks() {
 
     local bin_dir="$HOME/.local/bin"
     mkdir -p "$bin_dir"
+    mkdir -p "$HOME/.penelope"
 
-    # Penelope — symlink penelope.py → ~/.local/bin/penelope
-    if [[ -f "$TOOLS_DIR/penelope/penelope.py" ]]; then
-        chmod +x "$TOOLS_DIR/penelope/penelope.py"
-        ln -sfn "$TOOLS_DIR/penelope/penelope.py" "$bin_dir/penelope"
+    # Penelope → Shells
+    if [[ -f "$TOOLS_DIR/Shells/penelope/penelope.py" ]]; then
+        chmod +x "$TOOLS_DIR/Shells/penelope/penelope.py"
+        ln -sfn "$TOOLS_DIR/Shells/penelope/penelope.py" "$bin_dir/penelope"
         success "penelope → ~/.local/bin/penelope"
     else
         warn "penelope.py not found — skipping symlink."
     fi
 
-    # ntlm_theft — symlink ntlm_theft.py → ~/.local/bin/ntlm_theft
-    if [[ -f "$TOOLS_DIR/ntlm_theft/ntlm_theft.py" ]]; then
-        chmod +x "$TOOLS_DIR/ntlm_theft/ntlm_theft.py"
-        ln -sfn "$TOOLS_DIR/ntlm_theft/ntlm_theft.py" "$bin_dir/ntlm_theft"
+    # ntlm_theft → AD
+    if [[ -f "$TOOLS_DIR/AD/ntlm_theft/ntlm_theft.py" ]]; then
+        chmod +x "$TOOLS_DIR/AD/ntlm_theft/ntlm_theft.py"
+        ln -sfn "$TOOLS_DIR/AD/ntlm_theft/ntlm_theft.py" "$bin_dir/ntlm_theft"
         success "ntlm_theft → ~/.local/bin/ntlm_theft"
     else
         warn "ntlm_theft.py not found — skipping symlink."
     fi
 
-    # Ligolo-ng — symlink versioned binaries to clean names
-    if [[ -d "$TOOLS_DIR/ligolo-ng" ]]; then
+    # Kerbrute → AD
+    if [[ -x "$TOOLS_DIR/AD/kerbrute" ]]; then
+        ln -sfn "$TOOLS_DIR/AD/kerbrute" "$bin_dir/kerbrute"
+        success "kerbrute → ~/.local/bin/kerbrute"
+    fi
+
+    # Ligolo-ng → Pivoting
+    if [[ -d "$TOOLS_DIR/Pivoting/ligolo-ng" ]]; then
         local proxy_bin agent_bin
-        proxy_bin=$(find "$TOOLS_DIR/ligolo-ng" -maxdepth 1 -name '*proxy*' -type f 2>/dev/null | head -1)
-        agent_bin=$(find "$TOOLS_DIR/ligolo-ng" -maxdepth 1 -name '*agent*' -type f 2>/dev/null | head -1)
+        proxy_bin=$(find "$TOOLS_DIR/Pivoting/ligolo-ng" -maxdepth 1 -name '*proxy*' -type f 2>/dev/null | head -1)
+        agent_bin=$(find "$TOOLS_DIR/Pivoting/ligolo-ng" -maxdepth 1 -name '*agent*' -type f 2>/dev/null | head -1)
 
         if [[ -n "$proxy_bin" ]]; then
             ln -sfn "$proxy_bin" "$bin_dir/ligolo-proxy"
@@ -1237,6 +1616,43 @@ section_tool_symlinks() {
         warn "Ligolo-ng directory not found — skipping symlinks."
     fi
 
+    # Recon tools → symlink binaries
+    for tool in katana gau waybackurls qsreplace; do
+        if [[ -x "$TOOLS_DIR/Recon/$tool" ]]; then
+            ln -sfn "$TOOLS_DIR/Recon/$tool" "$bin_dir/$tool"
+            success "$tool → ~/.local/bin/$tool"
+        fi
+    done
+
+    # Web tools → symlink binaries
+    for tool in dalfox trufflehog; do
+        if [[ -x "$TOOLS_DIR/Web/$tool" ]]; then
+            ln -sfn "$TOOLS_DIR/Web/$tool" "$bin_dir/$tool"
+            success "$tool → ~/.local/bin/$tool"
+        fi
+    done
+
+    # ParamSpider → symlink
+    if [[ -f "$TOOLS_DIR/Web/ParamSpider/paramspider/main.py" ]]; then
+        ln -sfn "$TOOLS_DIR/Web/ParamSpider/paramspider/main.py" "$bin_dir/paramspider"
+        chmod +x "$bin_dir/paramspider" 2>/dev/null
+        success "paramspider → ~/.local/bin/paramspider"
+    fi
+
+    # SecretFinder → symlink
+    if [[ -f "$TOOLS_DIR/Web/SecretFinder/SecretFinder.py" ]]; then
+        chmod +x "$TOOLS_DIR/Web/SecretFinder/SecretFinder.py"
+        ln -sfn "$TOOLS_DIR/Web/SecretFinder/SecretFinder.py" "$bin_dir/secretfinder"
+        success "secretfinder → ~/.local/bin/secretfinder"
+    fi
+
+    # LinkFinder → symlink
+    if [[ -f "$TOOLS_DIR/Web/LinkFinder/linkfinder.py" ]]; then
+        chmod +x "$TOOLS_DIR/Web/LinkFinder/linkfinder.py"
+        ln -sfn "$TOOLS_DIR/Web/LinkFinder/linkfinder.py" "$bin_dir/linkfinder"
+        success "linkfinder → ~/.local/bin/linkfinder"
+    fi
+
     # Ensure ~/.local/bin is on PATH (idempotent)
     if ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc"; then
         echo "" >> "$HOME/.zshrc"
@@ -1245,12 +1661,12 @@ section_tool_symlinks() {
         success "~/.local/bin added to PATH in .zshrc."
     fi
 
-    # Toolies — quick-access alias (it's a collection, not a single tool)
+    # Toolies — quick-access alias
     if ! grep -qF 'alias toolies=' "$HOME/.zshrc"; then
         echo "" >> "$HOME/.zshrc"
         echo "# Quick-access alias for Toolies collection" >> "$HOME/.zshrc"
-        echo "alias toolies='ls -la \$HOME/Tools/Toolies/'" >> "$HOME/.zshrc"
-        success "alias 'toolies' added to .zshrc (lists ~/Tools/Toolies contents)."
+        echo "alias toolies='ls -la \$HOME/Tools/Windows/Toolies/'" >> "$HOME/.zshrc"
+        success "alias 'toolies' added to .zshrc (lists ~/Tools/Windows/Toolies)."
     else
         warn "toolies alias already present — skipping."
     fi
@@ -1321,6 +1737,8 @@ main() {
     section_git_tools
     section_kerbrute
     section_ligolo
+    section_recon_tools
+    section_web_tools
     section_wezterm
     section_starship
     section_fonts
@@ -1338,26 +1756,44 @@ main() {
     echo ""
     info "Summary:"
     info "  • kali-linux-everything installed"
-    info "  • Tools cloned to ~/Tools (ntlm_theft, penelope, Toolies)"
-    info "  • Kerbrute binary in ~/Tools/kerbrute"
-    info "  • Ligolo-ng proxy + agent in ~/Tools/ligolo-ng"
-    info "  • rlwrap, feroxbuster, ffuf, fzf, zoxide, bat, eza, ripgrep installed via apt"
+    info "  • rlwrap, feroxbuster, ffuf, fzf, zoxide, bat, eza, ripgrep, xclip, mousepad installed via apt"
     info "  • WezTerm installed (config at ~/.wezterm.lua)"
     info "  • Starship installed (config at ~/.config/starship.toml)"
     info "  • FiraCode Nerd Font + Roboto installed"
-    info "  • ~/.zshrc configured with Starship init"
+    info "  • ~/.zshrc configured (Tokyo Night colors, Starship, aliases)"
     info "  • ~/.tmux.conf written (C-a prefix, mouse, Tokyo Night status bar)"
-    info "  • ~/Tools added to PATH"
-    info "  • ~/wordlists symlinks created (seclists, default)"
+    info "  • ~/.ssh/config written (keepalive, multiplexing, unhashed known_hosts)"
     info "  • newengagement <name> function available in zsh"
     echo ""
+    info "~/Tools directory structure:"
+    info "  • AD/              ntlm_theft, kerbrute"
+    info "  • Shells/          penelope"
+    info "  • Windows/         Toolies (PowerView, SharpHound, etc.)"
+    info "  • Pivoting/        ligolo-ng (proxy + agent)"
+    info "  • Recon/           katana, gau, waybackurls, qsreplace"
+    info "  • Web/             ParamSpider, Arjun, dalfox, SecretFinder, LinkFinder, trufflehog"
+    info "  • Exploits/        (ready for compiled exploits, POCs)"
+    info "  • Wordlists/       seclists + default symlinks"
+    echo ""
     info "Tool shortcuts (via ~/.local/bin):"
-    info "  • penelope       → ~/Tools/penelope/penelope.py"
-    info "  • ntlm_theft     → ~/Tools/ntlm_theft/ntlm_theft.py"
-    info "  • ligolo-proxy   → ~/Tools/ligolo-ng/proxy binary"
-    info "  • ligolo-agent   → ~/Tools/ligolo-ng/agent binary"
-    info "  • kerbrute       → ~/Tools/kerbrute (via PATH)"
-    info "  • toolies        → alias, lists ~/Tools/Toolies/"
+    info "  • penelope       → ~/Tools/Shells/penelope/penelope.py"
+    info "  • ntlm_theft     → ~/Tools/AD/ntlm_theft/ntlm_theft.py"
+    info "  • kerbrute       → ~/Tools/AD/kerbrute"
+    info "  • ligolo-proxy   → ~/Tools/Pivoting/ligolo-ng/proxy"
+    info "  • ligolo-agent   → ~/Tools/Pivoting/ligolo-ng/agent"
+    info "  • toolies        → alias, lists ~/Tools/Windows/Toolies/"
+    echo ""
+    info "Shell functions & aliases:"
+    info "  • serve <port>     — HTTP server (auto-sudo for <1024)"
+    info "  • listen <port>    — Penelope listener (auto-sudo for <1024)"
+    info "  • myip             — show all interface IPs"
+    info "  • nquick/nfull/nudp/nvuln <target> — nmap profiles"
+    info "  • extract <file>   — universal archive extraction"
+    info "  • b64e/b64d        — base64 encode/decode"
+    info "  • urlencode/urldecode — URL encode/decode"
+    info "  • copy/paste       — clipboard pipe (xclip)"
+    info "  • mkvenv/activate  — Python venv helpers"
+    info "  • cleanengagement  — post-engagement hygiene"
     echo ""
     warn "Restart your terminal (or run 'source ~/.zshrc') to apply changes."
 }
