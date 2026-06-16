@@ -1,7 +1,7 @@
 # Kali Linux Custom Setup Script
 ## WezTerm + Starship Edition
 
-A comprehensive automated setup script for Kali Linux featuring i3 window manager, WezTerm terminal with Tokyo Night theme, and Starship prompt with custom "icysec" branding.
+A comprehensive automated setup script for Kali Linux with custom branding and toolkits.
 
 ---
 
