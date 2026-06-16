@@ -1046,7 +1046,6 @@ ZSHRC_EOF
     cat > "$HOME/.wezterm.lua" << 'WEZTERM_EOF'
 -- Pull in the wezterm API
 local wezterm = require 'wezterm'
-local act = wezterm.action
 
 -- This will hold the configuration.
 local config = wezterm.config_builder()
@@ -1154,70 +1153,15 @@ config.colors = {
 }
 
 -- ═══════════════════════════════════════
---  Key Bindings
+--  Key Bindings — using WezTerm defaults
+--  Ctrl+Shift+T = new tab
+--  Ctrl+Shift+W = close tab
+--  Ctrl+Shift+Arrow = switch pane (if split)
+--  Ctrl+Shift+| = split horizontal (default)
+--  Ctrl+Shift+Space = quick select
+--  Ctrl+Shift+P = command palette
+--  See: https://wezfurlong.org/wezterm/config/default-keys.html
 -- ═══════════════════════════════════════
-config.keys = {
-    -- ── Pane splitting ──
-    { key = '|', mods = 'CTRL|SHIFT', action = act.SplitHorizontal { domain = 'CurrentPaneDomain' } },
-    { key = '_', mods = 'CTRL|SHIFT', action = act.SplitVertical { domain = 'CurrentPaneDomain' } },
-
-    -- ── Pane navigation (Ctrl+Shift + Arrow) ──
-    { key = 'LeftArrow',  mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Left' },
-    { key = 'RightArrow', mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Right' },
-    { key = 'UpArrow',    mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Up' },
-    { key = 'DownArrow',  mods = 'CTRL|SHIFT', action = act.ActivatePaneDirection 'Down' },
-
-    -- ── Pane zoom (toggle fullscreen — like tmux Ctrl+A z) ──
-    { key = 'z', mods = 'CTRL|SHIFT', action = act.TogglePaneZoomState },
-
-    -- ── Pane select (visual overlay with labels) ──
-    { key = 's', mods = 'CTRL|SHIFT', action = act.PaneSelect },
-
-    -- ── Pane swap (select a pane to swap with) ──
-    { key = 'x', mods = 'CTRL|SHIFT', action = act.PaneSelect { mode = 'SwapWithActive' } },
-
-    -- ── Close pane ──
-    { key = 'w', mods = 'CTRL|SHIFT', action = act.CloseCurrentPane { confirm = true } },
-
-    -- ── Tab reordering ──
-    { key = 'PageUp',   mods = 'CTRL|SHIFT', action = act.MoveTabRelative(-1) },
-    { key = 'PageDown', mods = 'CTRL|SHIFT', action = act.MoveTabRelative(1) },
-
-    -- ── Tab navigation ──
-    { key = 'PageUp',   mods = 'CTRL', action = act.ActivateTabRelative(-1) },
-    { key = 'PageDown', mods = 'CTRL', action = act.ActivateTabRelative(1) },
-
-    -- ── Font size ──
-    { key = '=', mods = 'CTRL', action = act.IncreaseFontSize },
-    { key = '-', mods = 'CTRL', action = act.DecreaseFontSize },
-    { key = '0', mods = 'CTRL', action = act.ResetFontSize },
-
-    -- ── Quick select mode ──
-    { key = 'Space', mods = 'CTRL|SHIFT', action = act.QuickSelect },
-
-    -- ── Tab navigator ──
-    { key = 't', mods = 'CTRL|SHIFT', action = act.SpawnTab 'CurrentPaneDomain' },
-
-    -- ── Rename tab ──
-    { key = 'r', mods = 'CTRL|SHIFT', action = act.PromptInputLine {
-        description = 'Enter new tab name:',
-        action = wezterm.action_callback(function(window, _, line)
-            if line then window:active_tab():set_title(line) end
-        end),
-    }},
-
-    -- ── Command palette ──
-    { key = 'p', mods = 'CTRL|SHIFT', action = act.ActivateCommandPalette },
-}
-
--- Ctrl+1-8 to jump to tab by number
-for i = 1, 8 do
-    table.insert(config.keys, {
-        key = tostring(i),
-        mods = 'CTRL',
-        action = act.ActivateTab(i - 1),
-    })
-end
 
 -- ═══════════════════════════════════════
 --  Quick Select Patterns (pentest-friendly)
